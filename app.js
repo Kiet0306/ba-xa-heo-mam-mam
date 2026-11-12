@@ -51,7 +51,12 @@ function km(p, o) {
 }
 function kmText(d) { return d == null ? null : d < 1 ? nf0.format(Math.round(d * 100) * 10) + " m" : nf1.format(d) + " km"; }
 function walkText(d) { if (d == null) return null; const m = Math.round(d * 1.3 / 4.8 * 60); return m <= 25 ? m + " phút đi bộ" : Math.max(3, Math.round(d * 1.3 / 22 * 60)) + " phút chạy xe"; }
+const STEP = { cho: "Đang gửi video", video: "Đang xem video", google: "Đang tra Google", vitri: "Đang tìm vị trí" };
+function busy(p) { return p.trangThai === "dang-tim" && Date.now() - (p.batDau || p.taoLuc || 0) < 6 * 60e3; }
 function verdict(p) {
+  if (busy(p)) return { t: (STEP[p.buoc] || "Đang tìm hiểu") + "...", c: "wait" };
+  if (p.trangThai === "dang-tim") return { t: "Chưa tìm xong", c: "wait" };
+  if (p.trangThai === "chua-ro") return { t: "Chưa rõ tên quán", c: "wait" };
   const s = p.google && p.google.sao;
   if (!s) return p.trangThai === "moi" ? { t: "Đang chờ đọc", c: "wait" } : { t: "Chưa có sao Google", c: "wait" };
   if (s >= 4.5) return { t: "Ngon, nên đi", c: "good" };
@@ -98,6 +103,13 @@ async function load(quiet) {
     else if (!quiet) banner("Chưa tải được danh sách mới. Đang hiện bản lưu gần nhất.");
   }
   renderFrom(); render();
+  if (S.places.some(busy)) watchBusy();
+  if (!$("#page").hidden && S.detailId) {
+    const p = S.places.find(x => x.id === S.detailId), sig = p ? p.trangThai + p.buoc + p.capNhat : "";
+    const typing = document.activeElement && /TEXTAREA|INPUT/.test(document.activeElement.tagName);
+    if (S.detailSig && sig !== S.detailSig && !typing && $("#page").querySelector(".cover")) openDetailKeep(S.detailId);
+    S.detailSig = sig;
+  }
 }
 function banner(t) { const b = $("#banner"); b.textContent = t; b.hidden = !t; }
 function upsert(p) { const i = S.places.findIndex(x => x.id === p.id); if (i >= 0) S.places[i] = p; else S.places.unshift(p); render(); }
@@ -279,6 +291,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { if (!$("#m
 /* ---------- detail ---------- */
 function openDetail(id) {
   const p = S.places.find(x => x.id === id); if (!p) return;
+  S.detailId = id;
   const g = p.google || {}, v = verdict(p), d = km(p), tk = safeUrl(p.link), mp = mapsUrl(p), dr = dirUrl(p);
   const cover = h("div", { class: "cover" }, thumb(p, true),
     h("div", { class: "cover-bar" }, h("button", { class: "round", "aria-label": "Quay lại", onclick: back }, icon(IC.back)),
@@ -301,7 +314,9 @@ function openDetail(id) {
   if (vid) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Video TikTok" }),
     h("iframe", { class: "gmap", style: "height:520px", loading: "lazy", title: "Video TikTok", allow: "autoplay; encrypted-media; fullscreen; picture-in-picture",
       src: "https://www.tiktok.com/player/v1/" + vid[1] + "?description=1&music_info=0&rel=0" })));
-  if (!p.ten) nodes.push(h("div", { class: "banner", text: "Web chưa tìm ra tên quán. Bấm Đọc lại ở cuối trang, thêm video đã lưu từ TikTok hoặc gõ tên quán." }));
+  if (busy(p)) nodes.push(h("div", { class: "banner", text: "Heo đang tìm hiểu quán này: " + (STEP[p.buoc] || "đang chạy").toLowerCase() + ". Trang tự cập nhật khi xong." }));
+  else if (!p.ten) nodes.push(h("div", { class: "banner", text: "Web chưa tìm ra tên quán. Bấm Đọc lại ở cuối trang, thêm video đã lưu từ TikTok hoặc gõ tên quán." }));
+  else if ((p.loiNhan || []).length) nodes.push(h("div", { class: "banner", text: p.loiNhan[0] }));
   if (mapsQuery(p)) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Trên Google Maps" }),
     h("iframe", { class: "gmap", loading: "lazy", referrerpolicy: "no-referrer-when-downgrade", title: "Bản đồ Google của quán",
       src: "https://maps.google.com/maps?q=" + encodeURIComponent(mapsQuery(p)) + "&hl=vi&z=16&output=embed" }),
@@ -346,6 +361,30 @@ function openDetail(id) {
 }
 function openDetailKeep(id) { const pg = $("#page"), y = pg.scrollTop; openDetail(id); pg.scrollTop = y; }
 
+/* ---------- tìm hiểu quán chạy nền + theo dõi tiến độ ---------- */
+function runProcess(id, text, images) {
+  const p = S.places.find(x => x.id === id);
+  if (p) { p.trangThai = "dang-tim"; p.buoc = images && images.length ? "cho" : "google"; p.batDau = Date.now(); render(); }
+  watchBusy();
+  apiPost({ action: "process", id, text: text || "", images: images || [] })
+    .then(j => {
+      upsert(j.place); fitted = false; refreshOpenDetail(j.place.id);
+      const n = (j.notes || [])[0];
+      toast(n ? nameOf(j.place) + ": " + n : "Xong rồi: " + nameOf(j.place) + ".", 5000);
+      if (typeof j.place.lat === "number") select(j.place.id, true);
+    })
+    .catch(e => { toast("Chưa tìm hiểu xong: " + errText(e.message), 5000); load(true); });
+}
+let busyTimer = null;
+function watchBusy() {
+  if (busyTimer) return;
+  busyTimer = setInterval(async () => {
+    if (!S.places.some(busy)) { clearInterval(busyTimer); busyTimer = null; return; }
+    if (!document.hidden) { await load(true); }
+  }, 4000);
+}
+function refreshOpenDetail(id) { if (!$("#page").hidden && S.detailId === id) openDetailKeep(id); }
+
 /* ---------- add / refresh ---------- */
 function needCode(then) {
   if (DEMO) return true;
@@ -384,7 +423,7 @@ async function videoAudio(file) {
   const ac = new AC();
   try {
     const buf = await new Promise((ok, no) => file.arrayBuffer().then(ab => ac.decodeAudioData(ab, ok, no)).catch(no));
-    const secs = Math.min(buf.duration, 100), rate = 16000;
+    const secs = Math.min(buf.duration, 90), rate = 8000;
     const off = new OfflineAudioContext(1, Math.ceil(secs * rate), rate);
     const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start(0, 0, secs);
     const pcm = (await off.startRendering()).getChannelData(0);
@@ -449,19 +488,17 @@ function openAdd() {
     let images = [];
     go.disabled = true; go.textContent = files.length ? "Đang chuẩn bị video..." : "Đang gửi...";
     try { images = await prepareMedia(files); } catch (e) { go.disabled = false; go.textContent = "Lưu và tìm review"; err.textContent = "Có ảnh hoặc video không mở được. Chọn cái khác."; err.hidden = false; return; }
-    const steps = stepsNode();
-    body.replaceChildren(h("p", { style: "margin:0;font-weight:600", text: "Heo đang đi tìm hiểu quán này..." }), steps, h("p", { class: "hint", text: "Mất khoảng 20 đến 60 giây." }));
+    go.textContent = "Đang lưu...";
     try {
-      const j = await apiPost({ action: "add", link: raw, text, images });
-      steps.finish(); upsert(j.place);
-      if (j.trung) toast("Quán này lưu rồi nè.");
-      else if (j.notes && j.notes.length) toast(j.notes[0], 5000);
-      else toast("Đã lưu " + nameOf(j.place) + ".");
-      fitted = false; select(j.place.id, true);
-      closePage(); openDetail(j.place.id);
+      const j = await apiPost({ action: "add", link: raw, text, coMedia: images.length > 0 });
+      upsert(j.place);
+      back(); setSheet("peek");
+      if (j.trung) { toast("Quán này lưu rồi nè."); select(j.place.id, true); if (images.length) runProcess(j.place.id, text, images); return; }
+      toast("Đã lưu. Heo đang tìm hiểu quán, bạn cứ xem bản đồ trong lúc chờ.", 4500);
+      runProcess(j.place.id, text, images);
     } catch (e) {
-      steps.stop();
-      body.replaceChildren(h("p", { class: "err", text: errText(e.message) }), h("button", { class: "btn primary block", onclick: () => { closePage(); openAdd(); }, text: "Thử lại" }));
+      go.disabled = false; go.textContent = "Lưu và tìm review";
+      err.textContent = errText(e.message); err.hidden = false;
       if (e.message === "sai_ma") { S.code = ""; ls("code", null); }
     }
   });
@@ -478,12 +515,8 @@ function openRefresh(p) {
   go.addEventListener("click", async () => {
     go.disabled = true; go.textContent = "Đang chuẩn bị...";
     const images = await prepareMedia([...f.file.files].slice(0, 3)).catch(() => []);
-    const steps = stepsNode(); body.replaceChildren(steps);
-    try {
-      const j = await apiPost({ action: "refresh", id: p.id, text: f.text.value.trim(), images });
-      steps.finish(); upsert(j.place); if (j.notes && j.notes.length) toast(j.notes[0], 5000); else toast("Đã cập nhật.");
-      closePage(); openDetail(p.id);
-    } catch (e) { steps.stop(); body.replaceChildren(h("p", { class: "err", text: errText(e.message) })); }
+    runProcess(p.id, f.text.value.trim(), images);
+    back(); toast("Heo đang tìm hiểu lại quán này.", 3500);
   });
   history.replaceState({ page: 1 }, "");
   openPage([topBar("Đọc lại quán"), body], null);
