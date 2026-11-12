@@ -459,6 +459,11 @@ async function openSettings(then) {
   if (!st && API && !DEMO) { try { st = S.status = await apiGet("status"); } catch (e) {} }
   const nodes = [topBar("Cài đặt")];
   if (!API && !DEMO) { nodes.push(h("div", { class: "banner", text: "Web chưa nối với Google Sheet. Kiệt làm xong bước cài đặt thì mục này mới dùng được." })); openPage(nodes); return; }
+  if (!st && !DEMO) {
+    nodes.push(h("div", { class: "banner", text: "Chưa nói chuyện được với Google. Kiểm tra mạng, hoặc Kiệt chưa bấm Cho phép ở bước cấp quyền." }),
+      h("button", { class: "btn primary block", onclick: () => { history.replaceState({ page: 1 }, ""); openSettings(then); } }, "Thử lại"));
+    openPage(nodes); return;
+  }
 
   if (st && !st.setup) {
     const c1 = h("input", { class: "field", type: "password", autocomplete: "new-password", placeholder: "Tạo mã nhóm (ít nhất 4 ký tự)" });
