@@ -297,6 +297,11 @@ function openDetail(id) {
       mp ? h("a", { class: "act", href: mp, target: "_blank", rel: "noopener" }, icon(IC.map), "Đọc review Google") : null,
       tk ? h("a", { class: "act", href: tk, target: "_blank", rel: "noopener" }, icon(IC.play), "Xem TikTok") : null)];
 
+  const vid = (p.link || "").match(/tiktok\.com\/@[^/]+\/video\/(\d+)/i);
+  if (vid) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Video TikTok" }),
+    h("iframe", { class: "gmap", style: "height:520px", loading: "lazy", title: "Video TikTok", allow: "autoplay; encrypted-media; fullscreen; picture-in-picture",
+      src: "https://www.tiktok.com/player/v1/" + vid[1] + "?description=1&music_info=0&rel=0" })));
+  if (!p.ten) nodes.push(h("div", { class: "banner", text: "Web chưa tìm ra tên quán. Bấm Đọc lại ở cuối trang, thêm video đã lưu từ TikTok hoặc gõ tên quán." }));
   if (mapsQuery(p)) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Trên Google Maps" }),
     h("iframe", { class: "gmap", loading: "lazy", referrerpolicy: "no-referrer-when-downgrade", title: "Bản đồ Google của quán",
       src: "https://maps.google.com/maps?q=" + encodeURIComponent(mapsQuery(p)) + "&hl=vi&z=16&output=embed" }),
@@ -356,13 +361,63 @@ async function compress(file) {
   const url = c.toDataURL("image/jpeg", .82);
   return { mime: "image/jpeg", data: url.split(",")[1] };
 }
+function canvasJpeg(src, w, hgt, max) {
+  const k = Math.min(1, max / Math.max(w, hgt));
+  const c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(hgt * k);
+  c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+  return { mime: "image/jpeg", data: c.toDataURL("image/jpeg", .75).split(",")[1] };
+}
+async function videoFrames(file, n) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+  await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = () => no(new Error("video_hong")); setTimeout(() => no(new Error("video_hong")), 15000); });
+  const dur = Math.min(isFinite(v.duration) ? v.duration : 30, 120), out = [];
+  for (let i = 0; i < n; i++) {
+    const t = Math.min(dur - .1, (i + .5) * dur / n);
+    await new Promise(ok => { v.onseeked = ok; v.currentTime = t; setTimeout(ok, 4000); });
+    out.push(canvasJpeg(v, v.videoWidth, v.videoHeight, 900));
+  }
+  URL.revokeObjectURL(url); return out;
+}
+async function videoAudio(file) {
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC || !window.OfflineAudioContext) return null;
+  const ac = new AC();
+  try {
+    const buf = await new Promise((ok, no) => file.arrayBuffer().then(ab => ac.decodeAudioData(ab, ok, no)).catch(no));
+    const secs = Math.min(buf.duration, 100), rate = 16000;
+    const off = new OfflineAudioContext(1, Math.ceil(secs * rate), rate);
+    const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start(0, 0, secs);
+    const pcm = (await off.startRendering()).getChannelData(0);
+    const ab = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(ab);
+    const wr = (o, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(o + i, str.charCodeAt(i)); };
+    wr(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); wr(8, "WAVE"); wr(12, "fmt "); dv.setUint32(16, 16, true);
+    dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, rate, true); dv.setUint32(28, rate * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+    wr(36, "data"); dv.setUint32(40, pcm.length * 2, true);
+    for (let i = 0; i < pcm.length; i++) { const x = Math.max(-1, Math.min(1, pcm[i])); dv.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); }
+    const bytes = new Uint8Array(ab); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return { mime: "audio/wav", data: btoa(bin) };
+  } catch (e) { return null; } finally { try { ac.close(); } catch (e) {} }
+}
+async function prepareMedia(files) {
+  const out = [];
+  for (const f of files) {
+    if (/^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name)) {
+      out.push(...await videoFrames(f, 6).catch(() => []));
+      const a = await videoAudio(f); if (a) out.push(a);
+      if (!out.length) throw new Error("video_hong");
+    } else out.push(await compress(f));
+  }
+  return out.slice(0, 10);
+}
 function formNodes(opts) {
   const link = h("input", { class: "field", id: "linkIn", type: "url", inputmode: "url", autocomplete: "off", placeholder: "Dán link TikTok hoặc gõ tên quán" });
   const pasteBtn = h("button", { class: "btn sm", type: "button", onclick: async () => { try { link.value = await navigator.clipboard.readText(); } catch (e) { link.focus(); toast("Giữ ngón tay trong ô rồi chọn Dán."); } } }, "Dán");
   const text = h("textarea", { class: "field", id: "textIn", placeholder: "Không bắt buộc: dán chữ mô tả video, hoặc gõ tên quán và món reviewer nhắc tới" }, opts.text || "");
-  const file = h("input", { type: "file", id: "fileIn", accept: "image/*", multiple: true });
+  const file = h("input", { type: "file", id: "fileIn", accept: "video/*,image/*", multiple: true });
   const thumbs = h("div", { class: "thumbs" });
-  file.addEventListener("change", () => thumbs.replaceChildren(...[...file.files].slice(0, 3).map(f => h("img", { src: URL.createObjectURL(f), alt: "" }))));
+  file.addEventListener("change", () => thumbs.replaceChildren(...[...file.files].slice(0, 3).map(f => /^video\//.test(f.type)
+    ? h("div", { class: "dish", style: "display:grid;place-items:center;height:64px" }, h("b", { text: "Video" }), h("span", { text: Math.round(f.size / 1e6) + " MB" }))
+    : h("img", { src: URL.createObjectURL(f), alt: "" }))));
   return { link, pasteBtn, text, file, thumbs };
 }
 function stepsNode() {
@@ -383,15 +438,17 @@ function openAdd() {
   const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" },
     h("p", { class: "hint", style: "margin:0", text: "Trong TikTok bấm Chia sẻ, chọn Sao chép liên kết, rồi dán vào đây." }),
     h("div", { class: "paste" }, f.link, f.pasteBtn),
+    h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video đã lưu từ TikTok để web nghe reviewer nói"), f.thumbs,
+    h("p", { class: "hint", style: "margin:0", text: "TikTok không cho web đọc video qua link. Muốn web tự tìm ra quán: trong TikTok bấm Chia sẻ, chọn Lưu video, rồi chọn video đó ở trên. Ảnh chụp màn hình có tên quán cũng được." }),
     f.text,
-    h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.img), "Thêm ảnh chụp video có tên quán (tối đa 3)"), f.thumbs,
     go, err);
   go.addEventListener("click", async () => {
     err.hidden = true;
     const raw = f.link.value.trim(), text = f.text.value.trim(), files = [...f.file.files].slice(0, 3);
     if (!raw && !text && !files.length) { err.textContent = errText("thieu_thong_tin"); err.hidden = false; return; }
     let images = [];
-    try { images = await Promise.all(files.map(compress)); } catch (e) { err.textContent = "Có ảnh không mở được. Chọn ảnh khác."; err.hidden = false; return; }
+    go.disabled = true; go.textContent = files.length ? "Đang chuẩn bị video..." : "Đang gửi...";
+    try { images = await prepareMedia(files); } catch (e) { go.disabled = false; go.textContent = "Lưu và tìm review"; err.textContent = "Có ảnh hoặc video không mở được. Chọn cái khác."; err.hidden = false; return; }
     const steps = stepsNode();
     body.replaceChildren(h("p", { style: "margin:0;font-weight:600", text: "Heo đang đi tìm hiểu quán này..." }), steps, h("p", { class: "hint", text: "Mất khoảng 20 đến 60 giây." }));
     try {
@@ -416,10 +473,11 @@ function openRefresh(p) {
   const f = formNodes({ text: p.ten && !p.google ? p.ten : "" });
   const go = h("button", { class: "btn primary block" }, "Đọc lại");
   const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" },
-    h("p", { class: "hint", style: "margin:0", text: "Gõ đúng tên quán, hoặc thêm ảnh chụp có tên và địa chỉ. Web sẽ tra Google lại từ đầu." }),
-    f.text, h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.img), "Thêm ảnh chụp video"), f.thumbs, go);
+    h("p", { class: "hint", style: "margin:0", text: "Thêm video đã lưu từ TikTok (web nghe reviewer nói), ảnh chụp có tên quán, hoặc gõ đúng tên quán. Web sẽ tra Google lại từ đầu." }),
+    h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video hoặc ảnh chụp"), f.thumbs, f.text, go);
   go.addEventListener("click", async () => {
-    const images = await Promise.all([...f.file.files].slice(0, 3).map(compress)).catch(() => []);
+    go.disabled = true; go.textContent = "Đang chuẩn bị...";
+    const images = await prepareMedia([...f.file.files].slice(0, 3)).catch(() => []);
     const steps = stepsNode(); body.replaceChildren(steps);
     try {
       const j = await apiPost({ action: "refresh", id: p.id, text: f.text.value.trim(), images });
