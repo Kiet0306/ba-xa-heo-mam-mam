@@ -479,7 +479,7 @@ function formNodes(opts) {
   const text = h("textarea", { class: "field", id: "textIn", placeholder: "Không bắt buộc: dán chữ mô tả video, hoặc gõ tên quán và món reviewer nhắc tới" }, opts.text || "");
   const file = h("input", { type: "file", id: "fileIn", accept: "video/*,image/*", multiple: true });
   const thumbs = h("div", { class: "thumbs" });
-  file.addEventListener("change", () => thumbs.replaceChildren(...[...file.files].slice(0, 3).map(f => /^video\//.test(f.type)
+  file.addEventListener("change", () => thumbs.replaceChildren(...[...file.files].slice(0, 10).map(f => /^video\//.test(f.type)
     ? h("div", { class: "dish", style: "display:grid;place-items:center;height:64px" }, h("b", { text: "Video" }), h("span", { text: Math.round(f.size / 1e6) + " MB" }))
     : h("img", { src: URL.createObjectURL(f), alt: "" }))));
   return { link, pasteBtn, text, file, thumbs };
@@ -499,17 +499,28 @@ function openAdd() {
   const f = formNodes({});
   const err = h("p", { class: "err", hidden: true });
   const go = h("button", { class: "btn primary block" }, "Lưu và tìm review");
+  const warn = h("div", { class: "banner", hidden: true });
+  let linkOnlyOk = false;
   const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" },
-    h("p", { class: "hint", style: "margin:0", text: "Trong TikTok bấm Chia sẻ, chọn Sao chép liên kết, rồi dán vào đây." }),
+    h("p", { class: "hint", style: "margin:0" }, h("b", { text: "Bước 1. " }), "Trong TikTok bấm Chia sẻ, chọn Sao chép liên kết, rồi dán vào đây."),
     h("div", { class: "paste" }, f.link, f.pasteBtn),
-    h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video đã lưu từ TikTok để web nghe reviewer nói"), f.thumbs,
-    h("p", { class: "hint", style: "margin:0", text: "TikTok không cho web đọc video qua link. Muốn web tự tìm ra quán: trong TikTok bấm Chia sẻ, chọn Lưu video, rồi chọn video đó ở trên. Ảnh chụp màn hình có tên quán cũng được." }),
+    h("p", { class: "hint", style: "margin:0" }, h("b", { text: "Bước 2 (bắt buộc để web đọc được quán). " }), "Trong TikTok bấm Chia sẻ, chọn Lưu video, rồi bấm ô dưới đây chọn video đó. Bài đăng dạng ảnh thì chụp màn hình các ảnh (tối đa 10 ảnh)."),
+    h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Chọn video đã lưu hoặc ảnh chụp"), f.thumbs,
+    h("p", { class: "hint", style: "margin:0", text: "TikTok không cho web xem nội dung video qua link, chỉ có link thì web không biết quán nào." }),
     f.text,
-    go, err);
+    warn, go, err);
+  f.file.addEventListener("change", () => { warn.hidden = true; linkOnlyOk = false; go.textContent = "Lưu và tìm review"; });
   go.addEventListener("click", async () => {
     err.hidden = true;
-    const raw = f.link.value.trim(), text = f.text.value.trim(), files = [...f.file.files].slice(0, 3);
+    const raw = f.link.value.trim(), text = f.text.value.trim(), files = [...f.file.files].slice(0, 10);
     if (!raw && !text && !files.length) { err.textContent = errText("thieu_thong_tin"); err.hidden = false; return; }
+    if (/tiktok\.com/i.test(raw) && !text && !files.length && !linkOnlyOk) {
+      warn.textContent = /\/photo\//i.test(raw)
+        ? "Chưa có ảnh nào. Link này là bài đăng ảnh: chụp màn hình các ảnh có tên quán rồi chọn ở Bước 2. Hoặc bấm nút dưới lần nữa để chỉ lưu link."
+        : "Chưa chọn video. Chỉ có link thì web không đọc được quán. Làm Bước 2 nha. Hoặc bấm nút dưới lần nữa để chỉ lưu link, đọc sau.";
+      warn.hidden = false; linkOnlyOk = true; go.textContent = "Chỉ lưu link, đọc sau";
+      warn.scrollIntoView({ behavior: "smooth", block: "center" }); return;
+    }
     let images = [];
     go.disabled = true; go.textContent = files.length ? "Đang chuẩn bị video..." : "Đang gửi...";
     try { images = await prepareMedia(files); } catch (e) { go.disabled = false; go.textContent = "Lưu và tìm review"; err.textContent = "Có ảnh hoặc video không mở được. Chọn cái khác."; err.hidden = false; return; }
@@ -539,7 +550,7 @@ function openRefresh(p) {
     h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video hoặc ảnh chụp"), f.thumbs, f.text, go);
   go.addEventListener("click", async () => {
     go.disabled = true; go.textContent = "Đang chuẩn bị...";
-    const images = await prepareMedia([...f.file.files].slice(0, 3)).catch(() => []);
+    const images = await prepareMedia([...f.file.files].slice(0, 10)).catch(() => []);
     runProcess(p.id, f.text.value.trim(), images);
     back(); toast("Heo đang tìm hiểu lại quán này.", 3500);
   });
