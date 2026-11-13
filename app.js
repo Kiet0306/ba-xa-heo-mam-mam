@@ -332,7 +332,7 @@ function openDetail(id) {
         h("b", { text: x.thuTu + ". " + nameOf(x) }), x.khuVuc ? h("span", { text: x.khuVuc }) : null))),
       h("button", { class: "btn sm", style: "align-self:flex-start", onclick: () => { S.group = p.nhom; fitted = false; back(); render(); setSheet("full"); } }, "Xem cả " + p.tongSo + " quán trên bản đồ")));
   }
-  if (busy(p)) nodes.push(h("div", { class: "banner", text: "Heo đang tìm hiểu quán này: " + (STEP[p.buoc] || "đang chạy").toLowerCase() + ". Trang tự cập nhật khi xong." }));
+  if (busy(p)) nodes.push(h("div", { class: "banner", text: "Đang đọc quán này: " + (STEP[p.buoc] || "đang chạy").toLowerCase() + ". Trang tự cập nhật khi xong." }));
   else if (!p.ten) nodes.push(h("div", { class: "banner", text: "Web chưa tìm ra tên quán. Bấm Đọc lại ở cuối trang, thêm video đã lưu từ TikTok hoặc gõ tên quán." }));
   else if ((p.loiNhan || []).length) nodes.push(h("div", { class: "banner", text: p.loiNhan[0] }));
   if (mapsQuery(p)) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Trên Google Maps" }),
@@ -438,7 +438,8 @@ async function videoFrames(file, n) {
     if (!(await wait("loadedmetadata", 15000))) throw new Error("video_khong_mo");
     try { await v.play(); v.pause(); } catch (e) {}
     if (v.readyState < 2) await wait("loadeddata", 8000);
-    const dur = Math.min(isFinite(v.duration) && v.duration > 0 ? v.duration : 30, 600), out = [];
+    const dur = Math.min(isFinite(v.duration) && v.duration > 0 ? v.duration : 30, 900), out = [];
+    if (!n) n = dur > 75 ? 20 : 12; // video dài (top nhiều quán) cần nhiều khung hơn
     for (let i = 0; i < n; i++) {
       const t = Math.min(dur - .1, (i + .5) * dur / n);
       const sk = wait("seeked", 5000); v.currentTime = t; await sk;
@@ -452,10 +453,11 @@ async function videoFrames(file, n) {
 }
 async function videoAudio(file) {
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC || !window.OfflineAudioContext) return null;
+  if (file.size > 250e6) return null;
   const ac = new AC();
   try {
     const buf = await new Promise((ok, no) => file.arrayBuffer().then(ab => ac.decodeAudioData(ab, ok, no)).catch(no));
-    const secs = Math.min(buf.duration, 180), rate = 8000;
+    const secs = Math.min(buf.duration, 300), rate = 8000;
     const off = new OfflineAudioContext(1, Math.ceil(secs * rate), rate);
     const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start(0, 0, secs);
     const pcm = (await off.startRendering()).getChannelData(0);
@@ -473,7 +475,7 @@ async function prepareMedia(files) {
   const out = [], log = [];
   for (const f of files) {
     if (/^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name)) {
-      const fr = await videoFrames(f, 12).catch(e => { log.push("khung:" + (e.message || e)); return []; });
+      const fr = await videoFrames(f, 0).catch(e => { log.push("khung:" + (e.message || e)); return []; });
       out.push(...fr);
       const a = await videoAudio(f); if (a) out.push(a); else log.push("tieng:khong");
       log.push("video " + Math.round(f.size / 1e6) + "MB " + (f.type || f.name) + " khung=" + fr.length);
@@ -481,7 +483,7 @@ async function prepareMedia(files) {
     } else out.push(await compress(f));
   }
   // Ảnh/khung hình đi trước, tiếng đi sau; thumbs xếp đúng thứ tự khung hình để AI chọn ảnh đại diện.
-  const imgs = out.filter(x => x.mime !== "audio/wav").slice(0, 14), audio = out.filter(x => x.mime === "audio/wav").slice(0, 1);
+  const imgs = out.filter(x => x.mime !== "audio/wav").slice(0, 22), audio = out.filter(x => x.mime === "audio/wav").slice(0, 1);
   const media = imgs.map(x => ({ mime: x.mime, data: x.data })).concat(audio);
   media.thumbs = imgs.map(x => x.thumb || "");
   media.log = log.join(" ").slice(0, 160);
@@ -533,18 +535,22 @@ function openAdd() {
         ? "Chưa có ảnh nào. Link này là bài đăng ảnh: chụp màn hình các ảnh có tên quán rồi chọn ở Bước 2. Hoặc bấm nút dưới lần nữa để chỉ lưu link."
         : "Chưa chọn video. Chỉ có link thì web không đọc được quán. Làm Bước 2 nha. Hoặc bấm nút dưới lần nữa để chỉ lưu link, đọc sau.";
       warn.hidden = false; linkOnlyOk = true; go.textContent = "Chỉ lưu link, đọc sau";
-      warn.scrollIntoView({ behavior: "smooth", block: "center" }); return;
+      warn.scrollIntoView({ behavior: "smooth", block: "center" });
+      try { f.file.click(); } catch (e) {}
+      return;
     }
     let images = [];
     go.disabled = true; go.textContent = files.length ? "Đang chuẩn bị video..." : "Đang gửi...";
-    try { images = await prepareMedia(files); } catch (e) { go.disabled = false; go.textContent = "Lưu và tìm review"; err.textContent = "Có ảnh hoặc video không mở được. Chọn cái khác."; err.hidden = false; return; }
+    let mediaErr = "";
+    try { images = await prepareMedia(files); }
+    catch (e) { images = []; images.log = "LOI " + (e.message || e) + " " + files.map(x => Math.round(x.size / 1e6) + "MB " + x.type).join(","); mediaErr = e.message || "loi"; }
     go.textContent = "Đang lưu...";
     try {
       const j = await apiPost({ action: "add", link: raw, text, coMedia: images.length > 0 });
       upsert(j.place);
       back(); setSheet("peek");
       if (j.trung) { toast("Quán này lưu rồi nè."); select(j.place.id, true); if (images.length) runProcess(j.place.id, text, images); return; }
-      toast("Đã lưu. Heo đang tìm hiểu quán, bạn cứ xem bản đồ trong lúc chờ.", 4500);
+      toast(mediaErr ? "Đã lưu link, nhưng điện thoại chưa mở được video này. Thử Đọc lại với vài ảnh chụp màn hình nha." : "Đã lưu. Đang đọc video, bạn cứ xem bản đồ trong lúc chờ.", mediaErr ? 7000 : 4500);
       runProcess(j.place.id, text, images);
     } catch (e) {
       go.disabled = false; go.textContent = "Lưu và tìm review";
@@ -570,7 +576,7 @@ function openRefresh(p) {
     catch (e) { go.disabled = false; go.textContent = "Đọc lại"; toast("Video này điện thoại chưa mở được. Thử chụp vài ảnh màn hình có tên quán rồi chọn ảnh nha.", 6000); return; }
     if (!files.length && !f.text.value.trim()) { go.disabled = false; go.textContent = "Đọc lại"; toast("Chọn video đã lưu hoặc gõ tên quán trước nha.", 4000); return; }
     runProcess(p.id, f.text.value.trim(), images);
-    back(); toast("Heo đang tìm hiểu lại quán này.", 3500);
+    back(); toast("Đang đọc lại quán này.", 3500);
   });
   history.replaceState({ page: 1 }, "");
   openPage([topBar("Đọc lại quán"), body], null);

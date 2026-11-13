@@ -6,7 +6,7 @@
 <title>Măm măm cùng bxa</title>
 <script>if(/github\.io$/.test(location.hostname))location.replace("https://mammamcungbxa.vercel.app/"+location.search+location.hash);</script>
 <meta name="description" content="Sổ quán ngon của hai đứa: dán link TikTok, xem review Google, tìm quán gần nhất.">
-<meta name="theme-color" content="#ff5c93">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Măm măm">
@@ -16,21 +16,17 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600&family=Be+Vietnam+Pro:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="pig" viewBox="0 0 100 100">
-    <path d="M22 32 L16 8 L42 21 Z" fill="#ff8fb6"/><path d="M78 32 L84 8 L58 21 Z" fill="#ff8fb6"/>
-    <circle cx="50" cy="55" r="38" fill="#ffb3cb"/>
-    <ellipse cx="29" cy="65" rx="7" ry="4.5" fill="#ff7aa8" opacity=".6"/><ellipse cx="71" cy="65" rx="7" ry="4.5" fill="#ff7aa8" opacity=".6"/>
-    <circle cx="36" cy="47" r="4.8" fill="#34172a"/><circle cx="64" cy="47" r="4.8" fill="#34172a"/>
-    <circle cx="37.6" cy="45.4" r="1.5" fill="#fff"/><circle cx="65.6" cy="45.4" r="1.5" fill="#fff"/>
-    <ellipse cx="50" cy="64" rx="14.5" ry="10.5" fill="#ff7aa8"/>
-    <ellipse cx="45" cy="64" rx="2.6" ry="3.8" fill="#c22d63"/><ellipse cx="55" cy="64" rx="2.6" ry="3.8" fill="#c22d63"/>
-    <path d="M42 80 Q50 86 58 80" stroke="#c22d63" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+  <symbol id="pig" viewBox="0 0 48 48">
+    <circle cx="24" cy="24" r="24" fill="#fde8ef"/>
+    <path d="M17 13c0 2-2 2.5-2 4.5M24 11c0 2-2 2.5-2 4.5M31 13c0 2-2 2.5-2 4.5" stroke="#e0527f" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <path d="M10 22h28c0 7.7-6.3 14-14 14s-14-6.3-14-14z" fill="#e0527f"/>
+    <path d="M18 36.5h12" stroke="#e0527f" stroke-width="2.2" stroke-linecap="round"/>
   </symbol>
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></symbol>
 </svg>
@@ -55,7 +51,7 @@
   </div>
   <div class="sheet-body" id="sheetBody">
     <div class="banner" id="banner" hidden></div>
-    <button class="pick" id="pickBtn"><span class="dice">🎲</span>Hôm nay ăn gì?</button>
+    <button class="pick" id="pickBtn"><span class="dice">✦</span>Hôm nay ăn gì?</button>
     <div class="controls">
       <div class="chips" role="group" aria-label="Lọc quán" id="chips">
         <button class="chip" data-f="all" aria-pressed="true">Tất cả</button>
@@ -78,7 +74,7 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="config.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

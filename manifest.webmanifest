@@ -4,8 +4,8 @@
   "description": "Sổ quán ngon của hai đứa",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#fff6f9",
-  "theme_color": "#ff5c93",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "lang": "vi",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
