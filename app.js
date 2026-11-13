@@ -69,7 +69,13 @@ function verdict(p) {
   if (s >= 4.0) return { t: "Ổn, đi thử được", c: "ok" };
   return { t: "Bị chê nhiều", c: "bad" };
 }
-function mapsQuery(p) { return [p.ten, p.diaChi].filter(Boolean).join(", "); }
+function boDau(x) { return String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase(); }
+function mapsQuery(p) {
+  // Kèm khu vực khi địa chỉ chỉ có tên đường, kẻo Google dẫn sang đường cùng tên ở tỉnh khác.
+  const kv = (p.khuVuc || "").split(",")[0].trim();
+  const dc = p.diaChi && kv && !boDau(p.diaChi).includes(boDau(kv).replace(/^(quan|huyen|thanh pho|tp\.?|phuong|xa)\s+/, "")) ? p.diaChi + ", " + p.khuVuc : (p.diaChi || p.khuVuc);
+  return [p.ten, dc].filter(Boolean).join(", ");
+}
 function mapsUrl(p) { const q = mapsQuery(p); return q ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q) : null; }
 function dirUrl(p) {
   if (typeof p.lat === "number") return "https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(mapsQuery(p) || (p.lat + "," + p.lng));
@@ -358,6 +364,7 @@ function openDetail(id) {
     h("div", { class: "title" }, h("span", { class: "pill " + v.c, style: "align-self:flex-start", text: v.t }), h("h1", { text: nameOf(p) }),
       g.sao ? h("div", { class: "big-stars" }, h("b", { text: nf1.format(g.sao) }), h("span", { class: "row5", text: "★★★★★".slice(0, Math.round(g.sao)) + "☆☆☆☆☆".slice(0, 5 - Math.round(g.sao)) }), h("span", { class: "hint", text: (g.soDanhGia ? nf0.format(g.soDanhGia) + " đánh giá " : "") + "trên Google" })) : null),
     h("div", { class: "facts" }, facts),
+    p.viTriGanDung ? h("p", { class: "hint", style: "margin:0", text: "Video chỉ nói tên đường nên ghim nằm trên con đường đó, chưa chắc đúng số nhà. Nút Chỉ đường sẽ tìm theo tên quán." }) : null,
     h("div", { class: "acts" },
       dr ? h("a", { class: "act primary", href: dr, target: "_blank", rel: "noopener" }, icon(IC.nav), "Chỉ đường") : null,
       mp ? h("a", { class: "act", href: mp, target: "_blank", rel: "noopener" }, icon(IC.map), "Đọc review Google") : null,
