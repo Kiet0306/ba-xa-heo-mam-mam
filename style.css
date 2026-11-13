@@ -199,3 +199,26 @@ textarea.field{min-height:88px;resize:vertical}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (min-width:900px){.sheet{left:20px;right:auto;width:420px;margin:0;bottom:20px;border-radius:var(--r-lg);height:calc(100dvh - 140px)!important;box-shadow:var(--shadow)}
   .locate{bottom:30px!important}.grab{display:none}}
+
+/* ---------- mục gộp: nhiều quán trong 1 video ---------- */
+.vgroup{border-radius:var(--r-md);transition:background .2s}
+.vgroup + .card,.card + .vgroup,.vgroup + .vgroup{box-shadow:0 -1px 0 var(--line)}
+.vgroup.open{background:var(--surface-2);box-shadow:none!important;margin:4px 0}
+.vg-head{background:transparent}
+.vg-head .kicker{font-size:10.5px;letter-spacing:.1em}
+.vg-head h3{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stack{position:relative;width:72px;height:72px;flex:0 0 auto}
+.stack .mini{position:absolute;width:54px;height:54px;border-radius:12px;overflow:hidden;border:2px solid #fff;box-shadow:var(--shadow-xs);
+  background:linear-gradient(140deg,#fdeef3,#f7d5e1);display:grid;place-items:center;font:600 20px var(--f-display);color:var(--pink-deep)}
+.stack .mini img{width:100%;height:100%;object-fit:cover}
+.stack .mini:nth-child(1){left:0;top:0;z-index:3}
+.stack .mini:nth-child(2){left:9px;top:9px;z-index:2;transform:rotate(4deg)}
+.stack .mini:nth-child(3){left:18px;top:18px;z-index:1;transform:rotate(8deg)}
+.stack .mini:only-child{left:9px;top:9px}
+.chev{font-size:22px;color:var(--muted);width:28px;text-align:center;transition:transform .2s;flex:0 0 auto}
+.vgroup.open .chev{transform:rotate(90deg);color:var(--pink-deep)}
+.vg-items{display:flex;flex-direction:column;gap:2px;padding:0 8px 12px 18px;position:relative}
+.vg-items::before{content:"";position:absolute;left:9px;top:4px;bottom:56px;width:2px;border-radius:2px;background:#f6d4e0}
+.vg-items .card{background:var(--surface);box-shadow:var(--shadow-xs)!important;margin-top:4px}
+.vg-items .thumb{width:56px;height:56px;border-radius:12px}
+.vg-map{align-self:flex-start;margin-top:8px;background:#fff;border:1px solid var(--line);color:var(--pink-deep)}

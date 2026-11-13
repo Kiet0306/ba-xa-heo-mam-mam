@@ -230,12 +230,54 @@ function card(p) {
     h("button", { class: "heart" + (p.yeuThich ? " on" : ""), "aria-label": p.yeuThich ? "Bỏ thương" : "Thương quán này", "aria-pressed": p.yeuThich ? "true" : "false",
       onclick: e => { e.stopPropagation(); patch(p.id, { yeuThich: !p.yeuThich }); } }, svgUse("i-heart")));
 }
+/* Các quán cùng 1 video gộp thành 1 mục; bấm vào thì mở ra danh sách quán bên trong. */
+S.openGroups = S.openGroups || new Set();
+function entries(a) {
+  if (S.group) return a.map(p => ({ p }));
+  const out = [], seen = new Set();
+  a.forEach(p => {
+    if (!(p.nhom && p.tongSo > 1)) { out.push({ p }); return; }
+    if (seen.has(p.nhom)) return;
+    seen.add(p.nhom);
+    const ms = a.filter(x => x.nhom === p.nhom).sort((x, y) => (x.thuTu || 0) - (y.thuTu || 0));
+    out.push(ms.length > 1 ? { nhom: p.nhom, ms } : { p });
+  });
+  return out;
+}
+function groupCard(nhom, ms) {
+  const open = S.openGroups.has(nhom), o = origin();
+  const ds = ms.map(p => km(p, o)).filter(d => d != null), near = ds.length ? Math.min(...ds) : null;
+  const done = ms.filter(p => p.daDi).length, love = ms.some(p => p.yeuThich);
+  const stack = h("div", { class: "stack" }, ms.slice(0, 3).map(p => thumbMini(p)));
+  const names = ms.map(p => nameOf(p));
+  const head = h("div", { class: "card vg-head" + (open ? " open" : ""), role: "button", tabindex: "0", "aria-expanded": open ? "true" : "false",
+      onclick: () => { open ? S.openGroups.delete(nhom) : S.openGroups.add(nhom); render(); },
+      onkeydown: e => { if (e.key === "Enter") e.currentTarget.click(); } },
+    stack,
+    h("div", { class: "card-mid" },
+      h("div", { class: "kicker", text: "Video " + ms.length + " quán" + (love ? " · ♥" : "") }),
+      h("h3", { text: names.slice(0, 2).join(", ") + (names.length > 2 ? " +" + (names.length - 2) : "") }),
+      h("div", { class: "line" }, near != null ? h("span", { class: "dist", text: "Gần nhất " + kmText(near) }) : null,
+        h("span", { text: done ? done + "/" + ms.length + " quán đã đi" : (ms[0].khuVuc || "") }))),
+    h("span", { class: "chev", "aria-hidden": "true", text: "›" }));
+  const box = h("div", { class: "vgroup" + (open ? " open" : "") }, head);
+  if (open) box.append(h("div", { class: "vg-items" }, ms.map(card),
+    h("button", { class: "btn sm vg-map", onclick: () => { S.group = nhom; fitted = false; render(); setSheet("full"); }, text: "Xem " + ms.length + " quán này trên bản đồ" })));
+  return box;
+}
+function thumbMini(p) {
+  const src = safeImg(p.anhBia), b = h("div", { class: "mini" });
+  if (src) { const img = h("img", { src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }); img.onerror = () => { img.remove(); b.append(h("span", { text: nameOf(p).charAt(0).toUpperCase() })); }; b.append(img); }
+  else b.append(h("span", { text: nameOf(p).charAt(0).toUpperCase() }));
+  return b;
+}
 function render() {
   const live = S.places.filter(p => !p.an), a = visible(), o = origin();
   const near = o ? live.filter(p => { const d = km(p, o); return d != null && d <= 2; }).length : 0;
   $("#sheetTitle").textContent = o && S.sort === "near" ? "Quán quanh đây" : "Quán đã lưu";
+  const muc = entries(live).length, chuaDi = entries(live.filter(p => !p.daDi)).length;
   $("#sheetSub").textContent = live.length
-    ? (o ? near + " quán trong vòng 2 km · " : "") + live.filter(p => !p.daDi).length + " quán chưa đi"
+    ? (o ? near + " quán trong vòng 2 km · " : "") + chuaDi + " mục chưa đi" + (muc !== live.length ? " · " + live.length + " quán" : "")
     : "Sổ còn trống";
   const list = $("#list");
   if (!a.length) {
@@ -243,7 +285,7 @@ function render() {
     list.replaceChildren(h("div", { class: "empty" }, svgUse("pig"), h("h3", { text: empty ? "Chưa có quán nào" : "Không có quán ở mục này" }),
       h("p", { style: "margin:0", text: empty ? "Bấm Thêm quán, dán link TikTok review quán ăn. Web sẽ tìm review Google và vị trí giúp bạn." : "Đổi bộ lọc hoặc từ khoá để xem quán khác." }),
       empty ? h("button", { class: "btn primary", onclick: openAdd, text: "Thêm quán đầu tiên" }) : null));
-  } else list.replaceChildren(...a.map(card));
+  } else list.replaceChildren(...entries(a).map(e => e.ms ? groupCard(e.nhom, e.ms) : card(e.p)));
   if (S.group && a.length) list.prepend(h("div", { class: "row", style: "justify-content:space-between" },
     h("b", { text: "Cả " + a.length + " quán trong cùng một video" }),
     h("button", { class: "btn sm", onclick: () => { S.group = ""; fitted = false; render(); }, text: "Xem tất cả quán" })));
@@ -389,7 +431,7 @@ function runProcess(id, text, images) {
       (j.places || [j.place]).forEach(x => upsert(x)); fitted = false; refreshOpenDetail(j.place.id);
       const n = (j.notes || [])[0], many = (j.places || []).length > 1;
       toast(many ? n : n ? nameOf(j.place) + ": " + n : "Xong rồi: " + nameOf(j.place) + ".", 6000);
-      if (many) { S.filter = "all"; S.group = j.place.nhom; render(); setSheet("full"); }
+      if (many) { S.filter = "all"; S.openGroups.add(j.place.nhom); render(); setSheet("full"); }
       else if (typeof j.place.lat === "number") select(j.place.id, true);
     })
     .catch(e => { toast("Chưa tìm hiểu xong: " + errText(e.message), 5000); load(true); });
