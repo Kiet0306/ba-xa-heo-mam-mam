@@ -34,6 +34,7 @@ const IC = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', pin: '<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>'
 };
 function safeUrl(u) { return /^https:\/\//i.test(u || "") ? u : null; }
+function safeImg(u) { return /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(u || "") ? u : safeUrl(u); }
 const nf1 = new Intl.NumberFormat("vi-VN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const nf0 = new Intl.NumberFormat("vi-VN");
 function compact(n) { return n >= 1000 ? nf1.format(n / 1000) + "k" : nf0.format(n); }
@@ -58,7 +59,12 @@ function verdict(p) {
   if (p.trangThai === "dang-tim") return { t: "Chưa tìm xong", c: "wait" };
   if (p.trangThai === "chua-ro") return { t: "Chưa rõ tên quán", c: "wait" };
   const s = p.google && p.google.sao;
-  if (!s) return p.trangThai === "moi" ? { t: "Đang chờ đọc", c: "wait" } : { t: "Chưa có sao Google", c: "wait" };
+  if (!s) {
+    if (p.trangThai === "moi") return { t: "Đang chờ đọc", c: "wait" };
+    if (p.reviewerKhen && !p.reviewerChe) return { t: "Reviewer khen", c: "good" };
+    if (p.reviewerKhen) return { t: "Có khen có chê", c: "ok" };
+    return { t: "Xem sao trên Google", c: "wait" };
+  }
   if (s >= 4.5) return { t: "Ngon, nên đi", c: "good" };
   if (s >= 4.0) return { t: "Ổn, đi thử được", c: "ok" };
   return { t: "Bị chê nhiều", c: "bad" };
@@ -137,7 +143,7 @@ function renderMarkers(list) {
   list.forEach(p => {
     if (typeof p.lat !== "number" || typeof p.lng !== "number") return;
     const v = verdict(p), s = p.google && p.google.sao;
-    const html = '<div class="pin ' + v.c + (p.daDi ? " visited" : "") + (p.id === S.selId ? " sel" : "") + '"><span>' + (s ? nf1.format(s) : "?") + "</span></div>";
+    const html = '<div class="pin ' + v.c + (p.daDi ? " visited" : "") + (p.id === S.selId ? " sel" : "") + '"><span>' + (s ? nf1.format(s) : p.tongSo > 1 ? p.thuTu : "♥") + "</span></div>";
     const m = L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "", html, iconSize: [44, 44], iconAnchor: [4, 44] }), title: nameOf(p), keyboard: true });
     m.on("click", () => { select(p.id, true); openDetail(p.id); });
     markers.addLayer(m); pts.push([p.lat, p.lng]);
@@ -194,6 +200,7 @@ function visible() {
   if (S.filter === "todo") a = a.filter(p => !p.daDi);
   if (S.filter === "done") a = a.filter(p => p.daDi);
   if (S.filter === "love") a = a.filter(p => p.yeuThich);
+  if (S.group) { a = S.places.filter(p => p.nhom === S.group && !p.an); return a.sort((x, y) => (x.thuTu || 0) - (y.thuTu || 0)); }
   if (q) a = a.filter(p => [p.ten, p.diaChi, p.khuVuc, (p.loai || []).join(" "), (p.monGoiY || []).map(m => m.ten).join(" "), p.reviewer].join(" ").toLowerCase().includes(q));
   const o = origin(), d = p => { const x = km(p, o); return x == null ? 1e9 : x; };
   if (S.sort === "near" && o) a.sort((x, y) => d(x) - d(y));
@@ -203,10 +210,11 @@ function visible() {
 }
 function thumb(p, big) {
   const box = h("div", { class: big ? "ph" : "thumb" });
-  const src = safeUrl(p.anhBia);
+  const src = safeImg(p.anhBia);
   if (src) { const img = h("img", { src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }); img.onerror = () => { img.remove(); box.prepend(big ? svgUse("pig") : h("span", { class: "ph", text: nameOf(p).charAt(0).toUpperCase() })); }; box.append(img); }
   else box.append(big ? svgUse("pig") : h("span", { class: "ph", text: nameOf(p).charAt(0).toUpperCase() }));
   if (!big && p.daDi) box.append(h("span", { class: "tag", text: "Đã đi" }));
+  else if (!big && p.tongSo > 1) box.append(h("span", { class: "tag", text: p.thuTu + "/" + p.tongSo }));
   return box;
 }
 function starSpan(g) { return h("span", { class: "stars" }, h("i", { text: "★" }), nf1.format(g.sao), g.soDanhGia ? h("span", { style: "color:var(--muted);font-weight:500", text: " (" + compact(g.soDanhGia) + ")" }) : null); }
@@ -236,6 +244,9 @@ function render() {
       h("p", { style: "margin:0", text: empty ? "Bấm Thêm quán, dán link TikTok review quán ăn. Web sẽ tìm review Google và vị trí giúp bạn." : "Đổi bộ lọc hoặc từ khoá để xem quán khác." }),
       empty ? h("button", { class: "btn primary", onclick: openAdd, text: "Thêm quán đầu tiên" }) : null));
   } else list.replaceChildren(...a.map(card));
+  if (S.group && a.length) list.prepend(h("div", { class: "row", style: "justify-content:space-between" },
+    h("b", { text: "Cả " + a.length + " quán trong cùng một video" }),
+    h("button", { class: "btn sm", onclick: () => { S.group = ""; fitted = false; render(); }, text: "Xem tất cả quán" })));
   renderMarkers(S.filter === "hidden" ? a : a.filter(p => !p.an));
   $("#hello").textContent = S.name ? "Chào " + S.name + ", ăn gì nè?" : "Sổ quán ngon của hai đứa";
 }
@@ -314,6 +325,13 @@ function openDetail(id) {
   if (vid) nodes.push(h("section", { class: "sec" }, h("h3", { text: "Video TikTok" }),
     h("iframe", { class: "gmap", style: "height:520px", loading: "lazy", title: "Video TikTok", allow: "autoplay; encrypted-media; fullscreen; picture-in-picture",
       src: "https://www.tiktok.com/player/v1/" + vid[1] + "?description=1&music_info=0&rel=0" })));
+  if (p.nhom && p.tongSo > 1) {
+    const sibs = S.places.filter(x => x.nhom === p.nhom && x.id !== p.id && !x.an).sort((x, y) => (x.thuTu || 0) - (y.thuTu || 0));
+    nodes.push(h("section", { class: "sec" }, h("h3", { text: "Quán " + p.thuTu + " trong " + p.tongSo + " quán của video này" }),
+      h("div", { class: "dishes" }, sibs.map(x => h("button", { class: "dish", style: "text-align:left", onclick: () => { history.replaceState({ page: 1 }, ""); openDetail(x.id); $("#page").scrollTop = 0; } },
+        h("b", { text: x.thuTu + ". " + nameOf(x) }), x.khuVuc ? h("span", { text: x.khuVuc }) : null))),
+      h("button", { class: "btn sm", style: "align-self:flex-start", onclick: () => { S.group = p.nhom; fitted = false; back(); render(); setSheet("full"); } }, "Xem cả " + p.tongSo + " quán trên bản đồ")));
+  }
   if (busy(p)) nodes.push(h("div", { class: "banner", text: "Heo đang tìm hiểu quán này: " + (STEP[p.buoc] || "đang chạy").toLowerCase() + ". Trang tự cập nhật khi xong." }));
   else if (!p.ten) nodes.push(h("div", { class: "banner", text: "Web chưa tìm ra tên quán. Bấm Đọc lại ở cuối trang, thêm video đã lưu từ TikTok hoặc gõ tên quán." }));
   else if ((p.loiNhan || []).length) nodes.push(h("div", { class: "banner", text: p.loiNhan[0] }));
@@ -364,14 +382,15 @@ function openDetailKeep(id) { const pg = $("#page"), y = pg.scrollTop; openDetai
 /* ---------- tìm hiểu quán chạy nền + theo dõi tiến độ ---------- */
 function runProcess(id, text, images) {
   const p = S.places.find(x => x.id === id);
-  if (p) { p.trangThai = "dang-tim"; p.buoc = images && images.length ? "cho" : "google"; p.batDau = Date.now(); render(); }
+  if (p) { p.trangThai = "dang-tim"; p.buoc = images && images.length ? "cho" : "video"; p.batDau = Date.now(); render(); }
   watchBusy();
-  apiPost({ action: "process", id, text: text || "", images: images || [] })
+  apiPost({ action: "process", id, text: text || "", images: images || [], thumbs: (images && images.thumbs) || [] })
     .then(j => {
-      upsert(j.place); fitted = false; refreshOpenDetail(j.place.id);
-      const n = (j.notes || [])[0];
-      toast(n ? nameOf(j.place) + ": " + n : "Xong rồi: " + nameOf(j.place) + ".", 5000);
-      if (typeof j.place.lat === "number") select(j.place.id, true);
+      (j.places || [j.place]).forEach(x => upsert(x)); fitted = false; refreshOpenDetail(j.place.id);
+      const n = (j.notes || [])[0], many = (j.places || []).length > 1;
+      toast(many ? n : n ? nameOf(j.place) + ": " + n : "Xong rồi: " + nameOf(j.place) + ".", 6000);
+      if (many) { S.filter = "all"; S.group = j.place.nhom; render(); setSheet("full"); }
+      else if (typeof j.place.lat === "number") select(j.place.id, true);
     })
     .catch(e => { toast("Chưa tìm hiểu xong: " + errText(e.message), 5000); load(true); });
 }
@@ -398,23 +417,25 @@ async function compress(file) {
   const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
   c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
   const url = c.toDataURL("image/jpeg", .82);
-  return { mime: "image/jpeg", data: url.split(",")[1] };
+  return { mime: "image/jpeg", data: url.split(",")[1], thumb: canvasJpeg(bmp, bmp.width, bmp.height, 220, .6).data };
 }
-function canvasJpeg(src, w, hgt, max) {
+function canvasJpeg(src, w, hgt, max, q) {
   const k = Math.min(1, max / Math.max(w, hgt));
   const c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(hgt * k);
   c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
-  return { mime: "image/jpeg", data: c.toDataURL("image/jpeg", .75).split(",")[1] };
+  return { mime: "image/jpeg", data: c.toDataURL("image/jpeg", q || .75).split(",")[1] };
 }
 async function videoFrames(file, n) {
   const url = URL.createObjectURL(file);
   const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
   await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = () => no(new Error("video_hong")); setTimeout(() => no(new Error("video_hong")), 15000); });
-  const dur = Math.min(isFinite(v.duration) ? v.duration : 30, 120), out = [];
+  const dur = Math.min(isFinite(v.duration) ? v.duration : 30, 600), out = [];
   for (let i = 0; i < n; i++) {
     const t = Math.min(dur - .1, (i + .5) * dur / n);
     await new Promise(ok => { v.onseeked = ok; v.currentTime = t; setTimeout(ok, 4000); });
-    out.push(canvasJpeg(v, v.videoWidth, v.videoHeight, 900));
+    const big = canvasJpeg(v, v.videoWidth, v.videoHeight, 720);
+    big.thumb = canvasJpeg(v, v.videoWidth, v.videoHeight, 220, .6).data;
+    out.push(big);
   }
   URL.revokeObjectURL(url); return out;
 }
@@ -423,7 +444,7 @@ async function videoAudio(file) {
   const ac = new AC();
   try {
     const buf = await new Promise((ok, no) => file.arrayBuffer().then(ab => ac.decodeAudioData(ab, ok, no)).catch(no));
-    const secs = Math.min(buf.duration, 90), rate = 8000;
+    const secs = Math.min(buf.duration, 180), rate = 8000;
     const off = new OfflineAudioContext(1, Math.ceil(secs * rate), rate);
     const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start(0, 0, secs);
     const pcm = (await off.startRendering()).getChannelData(0);
@@ -441,12 +462,16 @@ async function prepareMedia(files) {
   const out = [];
   for (const f of files) {
     if (/^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name)) {
-      out.push(...await videoFrames(f, 6).catch(() => []));
+      out.push(...await videoFrames(f, 12).catch(() => []));
       const a = await videoAudio(f); if (a) out.push(a);
       if (!out.length) throw new Error("video_hong");
     } else out.push(await compress(f));
   }
-  return out.slice(0, 10);
+  // Ảnh/khung hình đi trước, tiếng đi sau; thumbs xếp đúng thứ tự khung hình để AI chọn ảnh đại diện.
+  const imgs = out.filter(x => x.mime !== "audio/wav").slice(0, 14), audio = out.filter(x => x.mime === "audio/wav").slice(0, 1);
+  const media = imgs.map(x => ({ mime: x.mime, data: x.data })).concat(audio);
+  media.thumbs = imgs.map(x => x.thumb || "");
+  return media;
 }
 function formNodes(opts) {
   const link = h("input", { class: "field", id: "linkIn", type: "url", inputmode: "url", autocomplete: "off", placeholder: "Dán link TikTok hoặc gõ tên quán" });
@@ -510,7 +535,7 @@ function openRefresh(p) {
   const f = formNodes({ text: p.ten && !p.google ? p.ten : "" });
   const go = h("button", { class: "btn primary block" }, "Đọc lại");
   const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" },
-    h("p", { class: "hint", style: "margin:0", text: "Thêm video đã lưu từ TikTok (web nghe reviewer nói), ảnh chụp có tên quán, hoặc gõ đúng tên quán. Web sẽ tra Google lại từ đầu." }),
+    h("p", { class: "hint", style: "margin:0", text: "Thêm video đã lưu từ TikTok (web nghe reviewer nói), ảnh chụp có tên quán, hoặc gõ đúng tên quán. Web sẽ đọc lại từ đầu." }),
     h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video hoặc ảnh chụp"), f.thumbs, f.text, go);
   go.addEventListener("click", async () => {
     go.disabled = true; go.textContent = "Đang chuẩn bị...";
@@ -627,8 +652,8 @@ function demoData() {
       monGoiY: [{ ten: "Phở tái nạm", gia: "95.000 đồng", nhanXet: "Nước dùng đậm" }, { ten: "Quẩy", gia: "5.000 đồng" }], tomTat: "Ví dụ: reviewer khen nước dùng, chê giá hơi cao.",
       google: { sao: 4.2, soDanhGia: 6293, mucGia: "100.000 – 200.000 đồng", gioMo: "Mở từ 5h30 đến 23h", tomTatReview: "Ví dụ: khách khen phần ăn nhiều, phục vụ nhanh, một số người thấy giá cao.", khen: ["Phần ăn nhiều", "Phục vụ nhanh"], che: ["Giá hơi cao"], monDuocKhen: ["Bánh cam"] },
       trangThai: "da-tra-google", taoLuc: now - 864e5, diem: { "Kiệt": 4 }, yeuThich: true },
-    { id: "d2", ten: "Lẩu bò Ba Toa (ví dụ)", khuVuc: "Quận 3, TP.HCM", lat: 10.7705, lng: 106.6862, google: { sao: 4.6, soDanhGia: 2100, mucGia: "200.000 – 300.000 đồng" }, trangThai: "da-tra-google", taoLuc: now - 3600e3 },
-    { id: "d3", ten: "Bánh tráng trộn cô Út (ví dụ)", khuVuc: "Quận 1, TP.HCM", lat: 10.7745, lng: 106.7042, google: { sao: 3.8, soDanhGia: 340 }, trangThai: "da-tra-google", daDi: true, taoLuc: now - 7200e3 }
+    { id: "d2", ten: "Lẩu bò Ba Toa (ví dụ)", khuVuc: "Quận 3, TP.HCM", lat: 10.7705, lng: 106.6862, google: { sao: 4.6, soDanhGia: 2100, mucGia: "200.000 – 300.000 đồng" }, trangThai: "da-doc", nhom: "g1", thuTu: 1, tongSo: 2, reviewerKhen: "Nước lẩu đậm", taoLuc: now - 3600e3 },
+    { id: "d3", ten: "Bánh tráng trộn cô Út (ví dụ)", khuVuc: "Quận 1, TP.HCM", lat: 10.7745, lng: 106.7042, google: { sao: 3.8, soDanhGia: 340 }, trangThai: "da-doc", nhom: "g1", thuTu: 2, tongSo: 2, taoLuc: now - 7200e3 }
   ] };
 }
 
