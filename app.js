@@ -384,7 +384,7 @@ function runProcess(id, text, images) {
   const p = S.places.find(x => x.id === id);
   if (p) { p.trangThai = "dang-tim"; p.buoc = images && images.length ? "cho" : "video"; p.batDau = Date.now(); render(); }
   watchBusy();
-  apiPost({ action: "process", id, text: text || "", images: images || [], thumbs: (images && images.thumbs) || [] })
+  apiPost({ action: "process", id, text: text || "", images: images || [], thumbs: (images && images.thumbs) || [], may: ((images && images.log) || "") + " | " + navigator.userAgent.replace(/^.*?\(/, "").slice(0, 40) })
     .then(j => {
       (j.places || [j.place]).forEach(x => upsert(x)); fitted = false; refreshOpenDetail(j.place.id);
       const n = (j.notes || [])[0], many = (j.places || []).length > 1;
@@ -426,18 +426,29 @@ function canvasJpeg(src, w, hgt, max, q) {
   return { mime: "image/jpeg", data: c.toDataURL("image/jpeg", q || .75).split(",")[1] };
 }
 async function videoFrames(file, n) {
+  // iPhone Safari chỉ nạp hình khi thẻ video nằm trong trang và đã được "phát" một chút.
   const url = URL.createObjectURL(file);
-  const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
-  await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = () => no(new Error("video_hong")); setTimeout(() => no(new Error("video_hong")), 15000); });
-  const dur = Math.min(isFinite(v.duration) ? v.duration : 30, 600), out = [];
-  for (let i = 0; i < n; i++) {
-    const t = Math.min(dur - .1, (i + .5) * dur / n);
-    await new Promise(ok => { v.onseeked = ok; v.currentTime = t; setTimeout(ok, 4000); });
-    const big = canvasJpeg(v, v.videoWidth, v.videoHeight, 720);
-    big.thumb = canvasJpeg(v, v.videoWidth, v.videoHeight, 220, .6).data;
-    out.push(big);
-  }
-  URL.revokeObjectURL(url); return out;
+  const v = document.createElement("video");
+  v.muted = true; v.defaultMuted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.preload = "auto";
+  v.style.cssText = "position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none";
+  document.body.appendChild(v);
+  const wait = (ev, ms) => new Promise(ok => { let done = false; const f = () => { if (!done) { done = true; v.removeEventListener(ev, f); ok(true); } }; v.addEventListener(ev, f); setTimeout(() => { if (!done) { done = true; ok(false); } }, ms); });
+  try {
+    v.src = url; v.load();
+    if (!(await wait("loadedmetadata", 15000))) throw new Error("video_khong_mo");
+    try { await v.play(); v.pause(); } catch (e) {}
+    if (v.readyState < 2) await wait("loadeddata", 8000);
+    const dur = Math.min(isFinite(v.duration) && v.duration > 0 ? v.duration : 30, 600), out = [];
+    for (let i = 0; i < n; i++) {
+      const t = Math.min(dur - .1, (i + .5) * dur / n);
+      const sk = wait("seeked", 5000); v.currentTime = t; await sk;
+      if (!v.videoWidth) continue;
+      const big = canvasJpeg(v, v.videoWidth, v.videoHeight, 720);
+      big.thumb = canvasJpeg(v, v.videoWidth, v.videoHeight, 220, .6).data;
+      out.push(big);
+    }
+    return out;
+  } finally { v.removeAttribute("src"); try { v.load(); } catch (e) {} v.remove(); URL.revokeObjectURL(url); }
 }
 async function videoAudio(file) {
   const AC = window.AudioContext || window.webkitAudioContext; if (!AC || !window.OfflineAudioContext) return null;
@@ -459,18 +470,21 @@ async function videoAudio(file) {
   } catch (e) { return null; } finally { try { ac.close(); } catch (e) {} }
 }
 async function prepareMedia(files) {
-  const out = [];
+  const out = [], log = [];
   for (const f of files) {
     if (/^video\//.test(f.type) || /\.(mp4|mov|m4v)$/i.test(f.name)) {
-      out.push(...await videoFrames(f, 12).catch(() => []));
-      const a = await videoAudio(f); if (a) out.push(a);
-      if (!out.length) throw new Error("video_hong");
+      const fr = await videoFrames(f, 12).catch(e => { log.push("khung:" + (e.message || e)); return []; });
+      out.push(...fr);
+      const a = await videoAudio(f); if (a) out.push(a); else log.push("tieng:khong");
+      log.push("video " + Math.round(f.size / 1e6) + "MB " + (f.type || f.name) + " khung=" + fr.length);
+      if (!fr.length && !a) throw new Error("video_hong");
     } else out.push(await compress(f));
   }
   // Ảnh/khung hình đi trước, tiếng đi sau; thumbs xếp đúng thứ tự khung hình để AI chọn ảnh đại diện.
   const imgs = out.filter(x => x.mime !== "audio/wav").slice(0, 14), audio = out.filter(x => x.mime === "audio/wav").slice(0, 1);
   const media = imgs.map(x => ({ mime: x.mime, data: x.data })).concat(audio);
   media.thumbs = imgs.map(x => x.thumb || "");
+  media.log = log.join(" ").slice(0, 160);
   return media;
 }
 function formNodes(opts) {
@@ -550,7 +564,11 @@ function openRefresh(p) {
     h("label", { class: "files", for: "fileIn" }, f.file, icon(IC.play), "Thêm video hoặc ảnh chụp"), f.thumbs, f.text, go);
   go.addEventListener("click", async () => {
     go.disabled = true; go.textContent = "Đang chuẩn bị...";
-    const images = await prepareMedia([...f.file.files].slice(0, 10)).catch(() => []);
+    const files = [...f.file.files].slice(0, 10);
+    let images = [];
+    try { images = await prepareMedia(files); }
+    catch (e) { go.disabled = false; go.textContent = "Đọc lại"; toast("Video này điện thoại chưa mở được. Thử chụp vài ảnh màn hình có tên quán rồi chọn ảnh nha.", 6000); return; }
+    if (!files.length && !f.text.value.trim()) { go.disabled = false; go.textContent = "Đọc lại"; toast("Chọn video đã lưu hoặc gõ tên quán trước nha.", 4000); return; }
     runProcess(p.id, f.text.value.trim(), images);
     back(); toast("Heo đang tìm hiểu lại quán này.", 3500);
   });
